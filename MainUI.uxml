@@ -1,0 +1,8 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" editor-extension-mode="False">
+    <ui:VisualElement style="flex-grow: 1; background-color: rgba(207, 153, 153, 0);">
+        <ui:TextField label="年" placeholder-text="filler text" name="InputYear" />
+        <ui:TextField label="节气拼音名" placeholder-text="filler text" name="InputName" />
+        <ui:Button text="读取数据" name="Button" />
+        <ui:ListView name="Contents" />
+    </ui:VisualElement>
+</ui:UXML>
