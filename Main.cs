@@ -9,6 +9,7 @@ using Debug = UnityEngine.Debug;
 using System.Collections.Generic;
 using System.Reflection.Emit;
 using Label = UnityEngine.UIElements.Label;
+using System.Linq;
 
 public class Main : MonoBehaviour
 {
@@ -108,67 +109,76 @@ public class Main : MonoBehaviour
     {
         jieqiResult.Clear();
 
+
         try
         {
             using (HttpClient client = new HttpClient())
             {
                 client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0");
 
-                for (int i = 0; i < 14; i++) // 共14次查询
+                var tasks = new List<Task<(int year, List<string> data)>>();
+//改成查询13次
+                for (int i = 0; i < 13; i++)
                 {
                     int yearToQuery = baseYear + i * 10;
                     string url = $"https://jieqi.bmcx.com/{yearToQuery}_{jieqiPinyin}__jieqi/";
 
-                    try
+                    tasks.Add(Task.Run(async () =>
                     {
-                        string html = await client.GetStringAsync(url);
-                        string textOnly = Regex.Replace(html, "<.*?>", "");
-
-                        // 临时列表保存当前组的数据
                         List<string> currentGroup = new List<string>();
 
-                        // 正则1：匹配 “xxxx年的立夏时间 公历：yyyy年MM月dd日 HH:mm:ss”
-                        string pattern1 = $@"\d{{4}}年的{jieqiName}时间\s*公历[:：]\s*(\d{{4}}年\d{{2}}月\d{{2}}日 \d{{2}}:\d{{2}}:\d{{2}})";
-                        Regex regex1 = new Regex(pattern1);
-                        MatchCollection matches1 = regex1.Matches(textOnly);
-
-                        foreach (Match match in matches1)
+                        try
                         {
-                            string value = $"\"{match.Groups[1].Value}\",";
-                            currentGroup.Add(value);
+                            string html = await client.GetStringAsync(url);
+                            string textOnly = Regex.Replace(html, "<.*?>", "");
+
+                            // 正则1
+                            string pattern1 = $@"\d{{4}}年的{jieqiName}时间\s*公历[:：]\s*(\d{{4}}年\d{{2}}月\d{{2}}日 \d{{2}}:\d{{2}}:\d{{2}})";
+                            var matches1 = Regex.Matches(textOnly, pattern1);
+                            foreach (Match match in matches1)
+                            {
+                                currentGroup.Add($"\"{match.Groups[1].Value}\",");
+                            }
+
+                            // 正则2
+                            string pattern2 = $@"\d{{4}}年{jieqiName}\s*开始时间是\s*(\d{{4}}年\d{{2}}月\d{{2}}日 \d{{2}}:\d{{2}}:\d{{2}})";
+                            var match2 = Regex.Match(textOnly, pattern2);
+                            if (match2.Success)
+                            {
+                                string startTime = $"\"{match2.Groups[1].Value}\",";
+
+                                // 插入到中间位置
+                                int insertIndex = currentGroup.Count / 2;
+                                if (insertIndex < 0 || insertIndex > currentGroup.Count)
+                                    insertIndex = currentGroup.Count;
+                                currentGroup.Insert(insertIndex, startTime);
+                            }
+
+                            if (currentGroup.Count == 0)
+                                currentGroup.Add($"未找到匹配的公历时间 ({yearToQuery})");
+                        }
+                        catch (Exception ex)
+                        {
+                            currentGroup.Add($"错误({yearToQuery}): {ex.Message}");
                         }
 
-                        // 正则2：匹配 “xxxx年立夏 开始时间是 yyyy年MM月dd日 HH:mm:ss”
-                        string pattern2 = $@"\d{{4}}年{jieqiName}\s*开始时间是\s*(\d{{4}}年\d{{2}}月\d{{2}}日 \d{{2}}:\d{{2}}:\d{{2}})";
-                        Regex regex2 = new Regex(pattern2);
-                        Match match2 = regex2.Match(textOnly);
+                        await Task.Delay(UnityEngine.Random.Range(1000, 3000)); // 防封
 
-                        if (match2.Success)
-                        {
-                            string startTime = $"\"{match2.Groups[1].Value}\",";
-
-                            // 插入到当前组的中间位置
-                            int insertIndex = currentGroup.Count / 2;
-                            currentGroup.Insert(insertIndex, startTime);
-                        }
-
-                        // 将当前组数据加入总列表
-                        jieqiResult.AddRange(currentGroup);
-
-                        if (currentGroup.Count == 0)
-                        {
-                            jieqiResult.Add($"未找到匹配的公历时间 ({yearToQuery})");
-                        }
-                    }
-                    catch (Exception innerEx)
-                    {
-                        jieqiResult.Add($"错误({yearToQuery}): {innerEx.Message}");
-                    }
+                        return (yearToQuery, currentGroup);
+                    }));
                 }
-            }
 
-            // 刷新 ListView
-            listView.RefreshItems();
+                // 等所有任务完成
+                var results = await Task.WhenAll(tasks);
+
+                // 按年份顺序合并
+                foreach (var result in results.OrderBy(r => r.year))
+                {
+                    jieqiResult.AddRange(result.data);
+                }
+
+                listView.RefreshItems();
+            }
         }
         catch (Exception ex)
         {
